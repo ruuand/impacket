@@ -30,6 +30,8 @@
 from __future__ import division
 from __future__ import print_function
 import sys
+import random
+import string
 import os
 import cmd
 import argparse
@@ -115,7 +117,8 @@ class CMDEXEC:
         self.__username = username
         self.__password = password
         self.__port = port
-        self.__serviceName = 'BTOBTO'
+        #self.__serviceName = 'BTOBTO'
+        self.__serviceName = 'PENT_'+''.join([random.choice(string.ascii_letters) for i in range(4)])
         self.__domain = domain
         self.__lmhash = ''
         self.__nthash = ''
@@ -260,7 +263,8 @@ class RemoteShell(cmd.Cmd):
             command += ' & ' + self.__copyBack
         command += ' & ' + 'del ' + self.__batchFile 
 
-        logging.debug('Executing %s' % command)
+        logging.debug('Creating service %s' % self.__serviceName)
+        logging.debug('Executing %s ' % command)
         resp = scmr.hRCreateServiceW(self.__scmr, self.__scHandle, self.__serviceName, self.__serviceName,
                                      lpBinaryPathName=command, dwStartType=scmr.SERVICE_DEMAND_START)
         service = resp['lpServiceHandle']
@@ -271,6 +275,7 @@ class RemoteShell(cmd.Cmd):
            pass
         scmr.hRDeleteService(self.__scmr, service)
         scmr.hRCloseServiceHandle(self.__scmr, service)
+        logging.debug('Deleting service %s' % self.__serviceName)
         self.get_output()
 
     def send_data(self, data):
