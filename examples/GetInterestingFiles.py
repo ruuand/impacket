@@ -64,7 +64,7 @@ class GetInterestingFiles():
 
     def do_recursive(self):
         if not self.check_share(self.share):
-            logging.error("error: no share with the name %s on the remote server" %(self.share))
+            logging.error("error: no share with the name %s on the remote server. Check uppercase/lowercase !" %(self.share))
             return
         self.smb.connectTree(self.share)
         current_level=[self.path]
@@ -122,6 +122,7 @@ def main():
     parser.add_argument('-max_file_size', action="store", metavar = "Number", default=0, help='Maximum size of interesting files in bytes. If exceeded, the file will not be downloaded. '
                                                                                         'Defaults to 0 (no file size limit)', type=int)
     parser.add_argument('-list-only', action="store_true", help='Switch: only list interesting files and don\'t download them')
+    parser.add_argument('-list-all', action="store_true", help='Switch: list all files without filtering and don\'t download them')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
 
     group = parser.add_argument_group('authentication')
@@ -192,12 +193,14 @@ def main():
             smbClient.login(username, password, domain, lmhash, nthash)
 
         filters=[]
-        if options.ff is not None:
+        if options.list_all is True:
+            filters = ["*"]
+        elif options.ff is not None:
             for line in options.ff.readlines():
                 filters.append(line.replace('\n','').lower())
         else:
             filters=["*password*", "*sensitive*", "*admin*", "*login*", "*secret*", "unattend*.xml", "*.vmdk", "*creds*", "*credential*", "*.config", "*.kdbx"]
-        if options.list_only is True:
+        if options.list_only is True or options.list_all is True:
             download_files=False
         else:
             download_files=True
