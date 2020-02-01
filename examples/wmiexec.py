@@ -239,7 +239,7 @@ class RemoteShell(cmd.Cmd):
                 self.__outputBuffer += data.decode(CODEC)
             except UnicodeDecodeError:
                 logging.error('Decoding error detected, consider running chcp.com at the target,\nmap the result with '
-                              'https://docs.python.org/2.4/lib/standard-encodings.html\nand then execute wmiexec.py '
+                              'https://docs.python.org/3/library/codecs.html#standard-encodings\nand then execute wmiexec.py '
                               'again with -codec and the corresponding codec')
                 self.__outputBuffer += data.decode(CODEC, errors='replace')
 
@@ -329,8 +329,6 @@ def load_smbclient_auth_file(path):
 
 # Process command-line arguments.
 if __name__ == '__main__':
-    # Init the example's logger theme
-    logger.init()
     print(version.BANNER)
 
     parser = argparse.ArgumentParser(add_help = True, description = "Executes a semi-interactive shell using Windows "
@@ -340,11 +338,12 @@ if __name__ == '__main__':
                                                                            '(default ADMIN$)')
     parser.add_argument('-nooutput', action='store_true', default = False, help='whether or not to print the output '
                                                                                 '(no SMB connection created)')
+    parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
     parser.add_argument('-codec', action='store', help='Sets encoding used (codec) from the target\'s output (default '
                                                        '"%s"). If errors are detected, run chcp.com at the target, '
                                                        'map the result with '
-                          'https://docs.python.org/2.4/lib/standard-encodings.html and then execute wmiexec.py '
+                          'https://docs.python.org/3/library/codecs.html#standard-encodings and then execute wmiexec.py '
                           'again with -codec and the corresponding codec ' % CODEC)
 
     parser.add_argument('command', nargs='*', default = ' ', help='command to execute at the target. If empty it will '
@@ -369,6 +368,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     options = parser.parse_args()
+
+    # Init the example's logger theme
+    logger.init(options.ts)
 
     if options.codec is not None:
         CODEC = options.codec

@@ -145,7 +145,7 @@ def start_servers(options, threads):
         c.setAttacks(PROTOCOL_ATTACKS)
         c.setLootdir(options.lootdir)
         c.setOutputFile(options.output_file)
-        c.setLDAPOptions(options.no_dump, options.no_da, options.no_acl, options.no_validate_privs, options.escalate_user, options.add_computer, options.delegate_access)
+        c.setLDAPOptions(options.no_dump, options.no_da, options.no_acl, options.no_validate_privs, options.escalate_user, options.add_computer, options.delegate_access, options.sid)
         c.setMSSQLOptions(options.query)
         c.setInteractive(options.interactive)
         c.setIMAPOptions(options.keyword, options.mailbox, options.all, options.imap_max)
@@ -191,8 +191,6 @@ def stop_servers(threads):
 # Process command-line arguments.
 if __name__ == '__main__':
 
-    # Init the example's logger theme
-    logger.init()
     print(version.BANNER)
     #Parse arguments
     parser = argparse.ArgumentParser(add_help = False, description = "For every connection received, this module will "
@@ -201,6 +199,7 @@ if __name__ == '__main__':
 
     #Main arguments
     parser.add_argument("-h","--help", action="help", help='show this help message and exit')
+    parser.add_argument('-ts', action='store_true', help='Adds timestamp to every logging output')
     parser.add_argument('-debug', action='store_true', help='Turn DEBUG output ON')
     parser.add_argument('-t',"--target", action='store', metavar = 'TARGET', help='Target to relay the credentials to, '
                   'can be an IP, hostname or URL like smb://server:445 If unspecified, it will relay back to the client')
@@ -232,15 +231,15 @@ if __name__ == '__main__':
     parser.add_argument('-codec', action='store', help='Sets encoding used (codec) from the target\'s output (default '
                                                        '"%s"). If errors are detected, run chcp.com at the target, '
                                                        'map the result with '
-                                                       'https://docs.python.org/2.4/lib/standard-encodings.html and then execute ntlmrelayx.py '
+                                                       'https://docs.python.org/3/library/codecs.html#standard-encodings and then execute ntlmrelayx.py '
                                                        'again with -codec and the corresponding codec ' % sys.getdefaultencoding())
     parser.add_argument('-smb2support', action="store_true", default=False, help='SMB2 Support (experimental!)')
     parser.add_argument('-socks', action='store_true', default=False,
                         help='Launch a SOCKS proxy for the connection relayed')
     parser.add_argument('-wh','--wpad-host', action='store',help='Enable serving a WPAD file for Proxy Authentication attack, '
                                                                    'setting the proxy host to the one supplied.')
-    parser.add_argument('-wa','--wpad-auth-num', action='store',help='Prompt for authentication N times for clients without MS16-077 installed '
-                                                                   'before serving a WPAD file.')
+    parser.add_argument('-wa','--wpad-auth-num', action='store', type=int, default=1, help='Prompt for authentication N times for clients without MS16-077 installed '
+                                                                   'before serving a WPAD file. (default=1)')
     parser.add_argument('-6','--ipv6', action='store_true',help='Listen on both IPv6 and IPv4')
     parser.add_argument('--remove-mic', action='store_true',help='Remove MIC (exploit CVE-2019-1040)')
     parser.add_argument('--serve-image', action='store',help='local path of the image that will we returned to clients')
@@ -280,6 +279,7 @@ if __name__ == '__main__':
     ldapoptions.add_argument('--escalate-user', action='store', required=False, help='Escalate privileges of this user instead of creating a new one')
     ldapoptions.add_argument('--add-computer', action='store', metavar='COMPUTERNAME', required=False, const='Rand', nargs='?', help='Attempt to add a new computer account')
     ldapoptions.add_argument('--delegate-access', action='store_true', required=False, help='Delegate access on relayed computer account to the specified account')
+    ldapoptions.add_argument('--sid', action='store_true', required=False, help='Use a SID to delegate access rather than an account name')
 
     #IMAP options
     imapoptions = parser.add_argument_group("IMAP client options")
@@ -296,6 +296,9 @@ if __name__ == '__main__':
     except Exception as e:
        logging.error(str(e))
        sys.exit(1)
+
+    # Init the example's logger theme
+    logger.init(options.ts)
 
     if options.debug is True:
         logging.getLogger().setLevel(logging.DEBUG)
