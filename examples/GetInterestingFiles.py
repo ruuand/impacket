@@ -104,7 +104,7 @@ class GetInterestingFiles():
 def main():
     # Init the example's logger theme
     logger.init()
-    print version.BANNER
+    print(version.BANNER)
     parser = argparse.ArgumentParser(add_help = True, description = "SMB client implementation.")
 
     parser.add_argument('target', action='store', help='[[domain/]username[:password]@]<targetName or address>')
