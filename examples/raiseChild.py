@@ -162,7 +162,7 @@ class PSEXEC:
                 installService = serviceinstall.ServiceInstall(rpctransport.get_smb_connection(), remcomsvc.RemComSvc())
             else:
                 try:
-                    f = open(self.__exeFile)
+                    f = open(self.__exeFile, 'rb')
                 except Exception as e:
                     logging.critical(str(e))
                     sys.exit(1)
@@ -902,7 +902,7 @@ class RAISECHILD:
             validationInfo = VALIDATION_INFO()
             validationInfo.fromString(pacInfos[PAC_LOGON_INFO])
             lenVal = len(validationInfo.getData())
-            validationInfo.fromStringReferents(data[lenVal:], lenVal)
+            validationInfo.fromStringReferents(data, lenVal)
 
             if logging.getLogger().level == logging.DEBUG:
                 logging.debug('VALIDATION_INFO before making it gold')
@@ -1268,16 +1268,8 @@ if __name__ == '__main__':
     logger.init(options.ts)
 
     import re
-    # This is because I'm lazy with regex
-    # ToDo: We need to change the regex to fullfil domain/username[:password]
-    targetParam = options.target + '@'
-    domain, username, password, address = re.compile('(?:(?:([^/@:]*)/)?([^@:]*)(?::([^@]*))?@)?(.*)').match(
-        targetParam).groups('')
-
-    #In case the password contains '@'
-    if '@' in address:
-        password = password + '@' + address.rpartition('@')[0]
-        address = address.rpartition('@')[2]
+    domain, username, password = re.compile('(?:(?:([^/:]*)/)?([^:]*)(?::(.*))?)?').match(
+        options.target).groups('')
 
     if options.debug is True:
         logging.getLogger().setLevel(logging.DEBUG)
